@@ -1,0 +1,18 @@
+### Mismatch Geo between Click and Install  
+
+WITH CTE as
+(SELECT  DATE(date_occurred) AS date, UPPER(CASE WHEN i.country_code = "" THEN REGEXP_EXTRACT(i.match_object, 'country=([a-z]{2})', 1)  ELSE i.country_code END) AS install_country_code,
+UPPER(CASE WHEN c.country_code = "" THEN REGEXP_EXTRACT(c.original_request, 'country=([a-z]{2})', 1) ELSE c.country_code END) AS click_country_code,
+i.network_name, i.site_id, i.country_code as country_code_installs, c.country_code as country_code_click, click_id, install_id
+FROM installs_primary as i
+JOIN clicks_primary as c
+ON (c.click_id = i.matched_to_id AND c.site_id = i.site_id)
+WHERE DATE(i.date_occurred) BETWEEN  "2021-10-25" and "2021-11-21"
+AND DATE(c.date_received) BETWEEN  "2021-10-25" and "2021-11-21"
+AND c.network_name = "AppLovin - Android"
+AND i.network_name = "AppLovin - Android")
+
+SELECT *
+FROM CTE
+WHERE install_country_code <> click_country_code
+ORDER BY date
