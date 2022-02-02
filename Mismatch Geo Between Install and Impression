@@ -1,0 +1,18 @@
+### Mismatch Geo Between Install and Impression table
+
+WITH CTE as
+(SELECT  DATE(date_occurred) AS date, UPPER(CASE WHEN i.country_code = "" THEN REGEXP_EXTRACT(i.match_object, 'country=([a-z]{2})', 1)  ELSE i.country_code END) AS install_country_code,
+UPPER(CASE WHEN im.country_code = "" THEN REGEXP_EXTRACT(im.original_request, 'country=([a-z]{2})', 1) ELSE im.country_code END) AS imp_country_code,
+i.network_name, i.site_id, i.country_code as country_code_installs, im.country_code as country_code_impressions, impression_id, install_id
+FROM installs_primary as i
+JOIN impressions_primary as im
+ON (im.impression_id = i.matched_to_id AND im.site_id = i.site_id)
+WHERE DATE(i.date_occurred) BETWEEN  "2021-10-25" and "2021-11-21"
+AND DATE(im.date_received) BETWEEN  "2021-10-25" and "2021-11-21"
+AND im.network_name = "AppLovin - Android"
+AND i.network_name = "AppLovin - Android")
+
+SELECT *
+FROM CTE
+WHERE install_country_code <> imp_country_code
+ORDER BY date
