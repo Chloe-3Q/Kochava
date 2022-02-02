@@ -1,0 +1,98 @@
+### Using Join to connect three tables and find abnormal metric. 
+
+WITH click_install AS (
+select ins.date_occurred date_occurred, ins.network_name, ins.country_code, ins.site_id, count(distinct click_id) as click_id
+from (
+SELECT DATE(date_occurred) date_occurred, network_name, site_id, install_id, matched_to_id,
+CASE
+WHEN country_code = "" THEN REGEXP_EXTRACT(match_object, 'country=([a-z]{2})', 1)
+ELSE country_code END AS country_code
+FROM installs_primary
+WHERE DATE(date_occurred) between "2021-11-20" and "2021-11-21"
+AND network_name = "AppLovin - Android"
+) as ins
+join (
+SELECT DATE(date_received), network_name, site_id, click_id,
+CASE
+WHEN country_code = "" THEN REGEXP_EXTRACT(original_request, 'country=([a-z]{2})', 1)
+ELSE country_code END AS country_code
+FROM clicks_primary
+WHERE DATE(date_received) between "2021-11-20" and "2021-11-21"
+AND network_name = "AppLovin - Android"
+) as cli
+on (cli.click_id = ins.matched_to_id and cli.site_id = ins.site_id and ins.country_code = cli.country_code)
+where DATE(ins.date_occurred) between "2021-11-20" and "2021-11-21"
+and ins.network_name = "AppLovin - Android"
+group by ins.date_occurred, ins.network_name, ins.country_code, ins.site_id),
+install_impression AS (
+select ins.date_occurred date_occurred, ins.network_name, ins.country_code, ins.site_id, count(distinct impression_id) as impression_id
+from (
+SELECT DATE(date_occurred) date_occurred, network_name, site_id, install_id, matched_to_id,
+UPPER(CASE
+WHEN country_code = "" THEN REGEXP_EXTRACT(match_object, 'country=([a-z]{2})', 1)
+ELSE country_code END) AS country_code
+FROM installs_primary
+WHERE DATE(date_occurred) between "2021-11-20" and "2021-11-21"
+AND network_name = "AppLovin - Android"
+) ins
+join (
+SELECT DATE(date_received), network_name, site_id, impression_id,
+UPPER(CASE
+WHEN country_code = "" THEN REGEXP_EXTRACT(original_request, 'country=([a-z]{2})', 1)
+ELSE country_code END) AS country_code
+FROM impressions_primary
+WHERE DATE(date_received) between "2021-11-20" and "2021-11-21"
+AND network_name = "AppLovin - Android"
+) impre
+on (impre.impression_id = ins.matched_to_id and impre.site_id = ins.site_id and ins.country_code = impre.country_code)
+where DATE(ins.date_occurred) between "2021-11-20" and "2021-11-21"
+and ins.network_name = "AppLovin - Android"
+group by ins.date_occurred,ins.network_name, ins.country_code, ins.site_id),
+click AS (
+select DATE(date_received) date_received, network_name, country_code, site_id, count(distinct click_id) as click_count
+from (
+SELECT DATE(date_received) date_received, network_name, site_id, click_id,
+UPPER(CASE
+WHEN country_code = "" THEN REGEXP_EXTRACT(original_request, 'country=([a-z]{2})', 1)
+ELSE country_code END) AS country_code
+FROM clicks_primary
+WHERE DATE(date_received) between "2021-11-20" and "2021-11-21"
+AND network_name = "AppLovin - Android"
+) click
+where DATE(date_received) between "2021-10-25" and "2021-11-21"
+and network_name = "AppLovin - Android"
+group by date_received, network_name, country_code, site_id),
+impression AS (
+select DATE(date_received) date_received, network_name, country_code, site_id, count(distinct impression_id) as impression_count
+from (
+SELECT DATE(date_received) date_received, network_name, site_id, impression_id,
+UPPER(CASE
+WHEN country_code = "" THEN REGEXP_EXTRACT(original_request, 'country=([a-z]{2})', 1)
+ELSE country_code END) AS country_code
+FROM impressions_primary
+WHERE DATE(date_received) between "2021-11-20" and "2021-11-21"
+AND network_name = "AppLovin - Android"
+) impre
+where DATE(impre.date_received) between "2021-11-20" and "2021-11-21"
+and network_name = "AppLovin - Android"
+group by DATE(date_received), network_name, country_code, site_id)
+
+select * from
+(select click_install.date_occurred, click_install.network_name, click_install.country_code as country_code,
+impression.impression_count, click.click_count,
+(click_install.click_id+install_impression.impression_id) as install_count,
+round(click.click_count/impression.impression_count, 2) as CTR,
+round((click_install.click_id+install_impression.impression_id)/click.click_count, 2) as CVR
+from click_install
+join install_impression
+on (click_install.site_id = install_impression.site_id and click_install.country_code = install_impression.country_code and click_install.date_occurred = install_impression.date_occurred)
+join click
+on (click.site_id = install_impression.site_id and click.country_code = install_impression.country_code and click.date_received = install_impression.date_occurred)
+join impression
+on (impression.site_id = click_install.site_id and impression.country_code = click_install.country_code and click_install.date_occurred = impression.date_received)
+) as t1
+where (impression_count < install_count
+or click_count < install_count
+or CTR > 0.9
+or CVR > 0.1)
+
